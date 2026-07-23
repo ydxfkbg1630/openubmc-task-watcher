@@ -58,17 +58,21 @@ GITCODE_SOURCES: list[dict[str, Any]] = [
         "include_details": True,
         "detail_title_keywords": ["SIG\u4efb\u52a1"],
     },
+    {
+        "key": "chaspark-ascendnpu-ir",
+        "name": "Chaspark/AscendNPU IR",
+        "project_id": 7494336,
+        "web_url": "https://gitcode.com/Ascend/AscendNPU-IR",
+        "referer": "https://gitcode.com/Ascend/AscendNPU-IR/issues/274",
+        "title_keywords": [],
+        "label_keywords": [],
+        "include_all_open": False,
+        "issue_iids": [274],
+        "include_details": True,
+    },
 ]
 
-GITHUB_SOURCES: list[dict[str, Any]] = [
-    {
-        "key": "vllm-ascend",
-        "name": "vLLM Ascend",
-        "repo": "vllm-project/vllm-ascend",
-        "labels": "Intern",
-        "web_url": "https://github.com/vllm-project/vllm-ascend/issues",
-    }
-]
+GITHUB_SOURCES: list[dict[str, Any]] = []
 
 CLAIMABLE_STATUS_WORDS = (
     "\u5f85\u8ba4\u9886",
@@ -182,6 +186,12 @@ def fetch_gitcode_issues(
     per_page: int = 100,
     max_pages: int = 5,
 ) -> list[dict[str, Any]]:
+    if source.get("issue_iids"):
+        return [
+            fetch_json(f"{gitcode_issues_api(source)}/{iid}", headers=gitcode_headers(source))
+            for iid in source["issue_iids"]
+        ]
+
     issues: list[dict[str, Any]] = []
     for page in range(1, max_pages + 1):
         payload = fetch_json(
@@ -210,6 +220,8 @@ def label_names(issue: dict[str, Any]) -> list[str]:
 
 
 def is_intern_issue(issue: dict[str, Any], source: dict[str, Any]) -> bool:
+    if source.get("issue_iids"):
+        return True
     if source.get("include_all_open"):
         return True
     title = str(issue.get("title") or "")
@@ -261,15 +273,57 @@ def stable_key_for_table_row(source_key: str, source_iid: int, title: str, url: 
 def parse_task_table(description: str, source_issue: dict[str, Any], source: dict[str, Any]) -> list[TaskItem]:
     source_iid = int(source_issue["iid"])
     rows: list[TaskItem] = []
+    current_header: list[str] = []
+
+    def column(cells: list[str], names: list[str]) -> str:
+        for name in names:
+            for index, header in enumerate(current_header):
+                if name in header and index < len(cells):
+                    return cells[index]
+        return ""
+
     for raw_line in description.splitlines():
         line = raw_line.strip()
         if not line.startswith("|"):
+            current_header = []
             continue
         cells = split_markdown_row(line)
-        if len(cells) < 7 or is_separator_row(cells):
+        if is_separator_row(cells):
             continue
         headerish = "".join(cells[:3])
-        if "\u9898\u76ee" in headerish and "\u5206\u503c" in headerish:
+        if ("\u9898\u76ee" in headerish and "\u5206\u503c" in headerish) or (
+            "\u4efb\u52a1ID" in headerish and "\u4efb\u52a1\u63cf\u8ff0" in headerish
+        ):
+            current_header = cells
+            continue
+
+        if "\u4efb\u52a1ID" in "".join(current_header) and "\u4efb\u52a1\u63cf\u8ff0" in "".join(current_header):
+            detail_cell = column(cells, ["\u4efb\u52a1ID"])
+            title = column(cells, ["\u4efb\u52a1\u63cf\u8ff0"])
+            score = column(cells, ["\u5206\u503c"])
+            status = column(cells, ["\u72b6\u6001"])
+            assignee = column(cells, ["\u627f\u63a5\u4eba", "\u4efb\u52a1\u8ba4\u9886\u4eba"])
+            if not title:
+                continue
+            _link_text, url = extract_markdown_link(detail_cell)
+            if not url:
+                url = issue_url(source, source_iid)
+            rows.append(
+                TaskItem(
+                    key=stable_key_for_table_row(str(source["key"]), source_iid, title, url),
+                    title=title,
+                    url=url,
+                    source=f"{source['name']} task pool #{source_iid}",
+                    status=status,
+                    assignee=assignee,
+                    sig=str(source["name"]),
+                    score=score,
+                    updated_at=str(source_issue.get("updated_at") or ""),
+                )
+            )
+            continue
+
+        if len(cells) < 7:
             continue
         sig, title, score, _eta, detail_cell, status, assignee = cells[:7]
         if not title or title == "---":
