@@ -2,12 +2,14 @@ param(
   [string]$ProjectDir = "F:\openubmc-task-watcher",
   [int]$IntervalMinutes = 5,
   [string]$TaskName = "OpenUBMCInternTaskWatcher",
-  [string]$Notify = "toast,console,wechat,email",
-  [string]$EnvFile = ".env"
+  [string]$Notify = "toast,wechat,email",
+  [string]$EnvFile = ".env",
+  [switch]$ShowConsole
 )
 
 $ErrorActionPreference = "Stop"
-$Python = Join-Path $ProjectDir ".venv\Scripts\python.exe"
+$PythonName = if ($ShowConsole) { "python.exe" } else { "pythonw.exe" }
+$Python = Join-Path $ProjectDir ".venv\Scripts\$PythonName"
 $Script = Join-Path $ProjectDir "openubmc_task_watcher.py"
 $State = Join-Path $ProjectDir "state.json"
 
@@ -28,4 +30,8 @@ $Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoi
 Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Settings $Settings `
   -Description "Watch openUBMC internship task issues and notify on new tasks." -Force | Out-Null
 
-Write-Host "Installed scheduled task '$TaskName' to run every $IntervalMinutes minute(s)."
+if ($ShowConsole) {
+  Write-Host "Installed scheduled task '$TaskName' to run every $IntervalMinutes minute(s) with a console window."
+} else {
+  Write-Host "Installed scheduled task '$TaskName' to run every $IntervalMinutes minute(s) in the background."
+}

@@ -43,6 +43,12 @@ python -m venv .venv
 .\install_windows_task.ps1
 ```
 
+定时任务默认使用 `pythonw.exe` 后台运行，不会每次弹出终端窗口。如果需要调试并显示终端，可以加 `-ShowConsole`：
+
+```powershell
+.\install_windows_task.ps1 -ShowConsole
+```
+
 卸载定时任务：
 
 ```powershell
