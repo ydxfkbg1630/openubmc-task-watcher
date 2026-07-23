@@ -1,16 +1,24 @@
-# OpenUBMC Task Watcher
+# Open Source Internship Watcher
 
-OpenUBMC Task Watcher 是一个面向 openUBMC 开源实习的任务监控器。它读取 GitCode issue 接口，自动识别新发布的实习任务和 SIG 表格里的“待认领”任务，并通过 Windows 桌面通知、微信、邮箱或通用 Webhook 提醒用户。
+Open Source Internship Watcher 是一个多项目开源实习任务监控器。它定期读取多个开源社区的任务 issue，自动识别新发布的实习任务和“待认领”任务，并通过 Windows 桌面通知、微信、邮箱或通用 Webhook 提醒用户。
+
+## 支持的项目
+
+- OpenUBMC：`openUBMC/community`
+- openEuler：`openeuler/opensource-intern`
+- MindSpore：`mindspore/community`
+- vLLM Ascend / Chaspark：`vllm-project/vllm-ascend` 的 `Intern` 标签 issue
 
 ## 功能
 
 - 识别新增的 `【开源实习】` issue
-- 识别带 `intern` 标签的新 issue
+- 识别 openEuler 实习仓库里的新增 open issue
+- 识别 vLLM Ascend GitHub 仓库 `Intern` 标签 issue
 - 解析 SIG 汇总 issue 表格
 - 识别表格里新增或变成 `待认领` 的任务
 - 使用 `state.json` 去重，避免重复提醒
-- 支持 Windows 桌面通知、控制台通知、微信通知、邮箱通知和通用 Webhook
-- 支持 Windows 定时任务，每隔几分钟自动检查
+- 支持 Windows 桌面通知、微信通知、邮箱通知和通用 Webhook
+- 支持 Windows 定时任务后台运行，不弹终端窗口
 
 ## 安装
 
@@ -20,6 +28,8 @@ python -m venv .venv
 ```
 
 ## 快速使用
+
+列出当前识别到的任务：
 
 ```powershell
 .\.venv\Scripts\python.exe .\openubmc_task_watcher.py --once --list
@@ -37,7 +47,7 @@ python -m venv .venv
 .\.venv\Scripts\python.exe .\openubmc_task_watcher.py --test-notify --notify toast,console
 ```
 
-注册 Windows 定时任务，默认每 5 分钟检查一次：
+注册 Windows 定时任务，默认每 5 分钟后台检查一次：
 
 ```powershell
 .\install_windows_task.ps1
@@ -85,6 +95,19 @@ SMTP_TO=receiver@example.com
 
 注意：`SMTP_PASSWORD` 通常不是邮箱登录密码，而是邮箱后台生成的 SMTP 授权码。
 
+如果监控 GitHub 时网络不稳定，可以在 `.env` 里配置代理：
+
+```env
+HTTPS_PROXY=http://127.0.0.1:7890
+HTTP_PROXY=http://127.0.0.1:7890
+```
+
+如果需要更高 GitHub API 额度，可以配置：
+
+```env
+GITHUB_TOKEN=your_github_token
+```
+
 配置完成后测试全部通知：
 
 ```powershell
@@ -105,14 +128,11 @@ SMTP_TO=receiver@example.com
 
 ## 数据源
 
-工具读取 GitCode issue API：
+工具读取这些公开任务数据源：
 
 ```text
-https://gitcode.com/issuepr/api/v1/issue/4064052/issues
-```
-
-目标仓库：
-
-```text
-https://gitcode.com/openUBMC/community
+https://gitcode.com/openUBMC/community/issues
+https://gitcode.com/openeuler/opensource-intern/issues
+https://gitcode.com/mindspore/community/issues
+https://github.com/vllm-project/vllm-ascend/issues?q=label%3AIntern
 ```

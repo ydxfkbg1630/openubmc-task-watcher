@@ -22,10 +22,53 @@ from pathlib import Path
 from typing import Any
 
 
-PROJECT_ID = 4064052
-PROJECT_PATH = "openUBMC/community"
-ISSUES_API = f"https://gitcode.com/issuepr/api/v1/issue/{PROJECT_ID}/issues"
-PROJECT_WEB = "https://gitcode.com/openUBMC/community"
+GITCODE_SOURCES: list[dict[str, Any]] = [
+    {
+        "key": "openubmc",
+        "name": "OpenUBMC",
+        "project_id": 4064052,
+        "web_url": "https://gitcode.com/openUBMC/community",
+        "referer": "https://gitcode.com/openUBMC/community/issues",
+        "title_keywords": ["\u5f00\u6e90\u5b9e\u4e60"],
+        "label_keywords": ["intern"],
+        "include_all_open": False,
+        "include_details": True,
+        "detail_title_keywords": ["SIG\u4efb\u52a1"],
+    },
+    {
+        "key": "openeuler",
+        "name": "openEuler",
+        "project_id": 7678559,
+        "web_url": "https://gitcode.com/openeuler/opensource-intern",
+        "referer": "https://gitcode.com/openeuler/opensource-intern/issues",
+        "title_keywords": [],
+        "label_keywords": [],
+        "include_all_open": True,
+        "include_details": False,
+    },
+    {
+        "key": "mindspore",
+        "name": "MindSpore",
+        "project_id": 8660827,
+        "web_url": "https://gitcode.com/mindspore/community",
+        "referer": "https://gitcode.com/mindspore/community/issues",
+        "title_keywords": ["\u5f00\u6e90\u5b9e\u4e60"],
+        "label_keywords": [],
+        "include_all_open": False,
+        "include_details": True,
+        "detail_title_keywords": ["SIG\u4efb\u52a1"],
+    },
+]
+
+GITHUB_SOURCES: list[dict[str, Any]] = [
+    {
+        "key": "vllm-ascend",
+        "name": "vLLM Ascend",
+        "repo": "vllm-project/vllm-ascend",
+        "labels": "Intern",
+        "web_url": "https://github.com/vllm-project/vllm-ascend/issues",
+    }
+]
 
 CLAIMABLE_STATUS_WORDS = (
     "\u5f85\u8ba4\u9886",
@@ -101,10 +144,18 @@ def load_env_file(path: str) -> None:
             os.environ[key] = value
 
 
-def fetch_json(url: str, params: dict[str, Any] | None = None, timeout: int = 30) -> dict[str, Any]:
+def fetch_json(
+    url: str,
+    params: dict[str, Any] | None = None,
+    timeout: int = 30,
+    headers: dict[str, str] | None = None,
+) -> Any:
     if params:
         url = f"{url}?{urllib.parse.urlencode(params)}"
-    request = urllib.request.Request(url, headers=DEFAULT_HEADERS)
+    request_headers = dict(DEFAULT_HEADERS)
+    if headers:
+        request_headers.update(headers)
+    request = urllib.request.Request(url, headers=request_headers)
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             data = response.read().decode("utf-8")
@@ -114,16 +165,33 @@ def fetch_json(url: str, params: dict[str, Any] | None = None, timeout: int = 30
     return json.loads(data)
 
 
-def fetch_issues(state: str = "opened", per_page: int = 100, max_pages: int = 5) -> list[dict[str, Any]]:
+def gitcode_issues_api(source: dict[str, Any]) -> str:
+    return f"https://gitcode.com/issuepr/api/v1/issue/{source['project_id']}/issues"
+
+
+def gitcode_headers(source: dict[str, Any]) -> dict[str, str]:
+    return {
+        "Origin": "https://gitcode.com",
+        "Referer": str(source.get("referer") or source["web_url"]),
+    }
+
+
+def fetch_gitcode_issues(
+    source: dict[str, Any],
+    state: str = "opened",
+    per_page: int = 100,
+    max_pages: int = 5,
+) -> list[dict[str, Any]]:
     issues: list[dict[str, Any]] = []
     for page in range(1, max_pages + 1):
         payload = fetch_json(
-            ISSUES_API,
+            gitcode_issues_api(source),
             {
                 "state": state,
                 "page": page,
                 "per_page": per_page,
             },
+            headers=gitcode_headers(source),
         )
         batch = payload.get("issues") or []
         issues.extend(batch)
@@ -132,8 +200,8 @@ def fetch_issues(state: str = "opened", per_page: int = 100, max_pages: int = 5)
     return issues
 
 
-def issue_url(iid: int | str) -> str:
-    return f"{PROJECT_WEB}/issues/{iid}"
+def issue_url(source: dict[str, Any], iid: int | str) -> str:
+    return f"{source['web_url']}/issues/{iid}"
 
 
 def label_names(issue: dict[str, Any]) -> list[str]:
@@ -141,10 +209,24 @@ def label_names(issue: dict[str, Any]) -> list[str]:
     return [str(label.get("name") or label.get("title") or "") for label in labels]
 
 
-def is_intern_issue(issue: dict[str, Any]) -> bool:
+def is_intern_issue(issue: dict[str, Any], source: dict[str, Any]) -> bool:
+    if source.get("include_all_open"):
+        return True
     title = str(issue.get("title") or "")
     labels = {name.lower() for name in label_names(issue)}
-    return "intern" in labels or "\u5f00\u6e90\u5b9e\u4e60" in title
+    label_keywords = {str(label).lower() for label in source.get("label_keywords", [])}
+    title_keywords = [str(keyword) for keyword in source.get("title_keywords", [])]
+    return bool(labels & label_keywords) or any(keyword in title for keyword in title_keywords)
+
+
+def should_fetch_issue_detail(issue: dict[str, Any], source: dict[str, Any]) -> bool:
+    if not source.get("include_details", True):
+        return False
+    keywords = [str(keyword) for keyword in source.get("detail_title_keywords", [])]
+    if not keywords:
+        return True
+    title = str(issue.get("title") or "")
+    return any(keyword in title for keyword in keywords)
 
 
 def split_markdown_row(line: str) -> list[str]:
@@ -168,15 +250,15 @@ def extract_markdown_link(cell: str) -> tuple[str, str]:
     return cell.strip(), url_match.group(0).rstrip(")") if url_match else ""
 
 
-def stable_key_for_table_row(source_iid: int, title: str, url: str) -> str:
+def stable_key_for_table_row(source_key: str, source_iid: int, title: str, url: str) -> str:
     linked_iid = re.search(r"/issues/(\d+)", url)
     if linked_iid:
-        return f"table:{source_iid}:issue:{linked_iid.group(1)}"
-    short_hash = hashlib.sha1(f"{source_iid}|{title}|{url}".encode("utf-8")).hexdigest()[:12]
-    return f"table:{source_iid}:{short_hash}"
+        return f"table:{source_key}:{source_iid}:issue:{linked_iid.group(1)}"
+    short_hash = hashlib.sha1(f"{source_key}|{source_iid}|{title}|{url}".encode("utf-8")).hexdigest()[:12]
+    return f"table:{source_key}:{source_iid}:{short_hash}"
 
 
-def parse_task_table(description: str, source_issue: dict[str, Any]) -> list[TaskItem]:
+def parse_task_table(description: str, source_issue: dict[str, Any], source: dict[str, Any]) -> list[TaskItem]:
     source_iid = int(source_issue["iid"])
     rows: list[TaskItem] = []
     for raw_line in description.splitlines():
@@ -194,13 +276,13 @@ def parse_task_table(description: str, source_issue: dict[str, Any]) -> list[Tas
             continue
         _link_text, url = extract_markdown_link(detail_cell)
         if not url:
-            url = issue_url(source_iid)
+            url = issue_url(source, source_iid)
         rows.append(
             TaskItem(
-                key=stable_key_for_table_row(source_iid, title, url),
+                key=stable_key_for_table_row(str(source["key"]), source_iid, title, url),
                 title=title,
                 url=url,
-                source=f"SIG table #{source_iid}",
+                source=f"{source['name']} SIG table #{source_iid}",
                 status=status,
                 assignee=assignee,
                 sig=sig,
@@ -211,16 +293,16 @@ def parse_task_table(description: str, source_issue: dict[str, Any]) -> list[Tas
     return rows
 
 
-def issue_to_task(issue: dict[str, Any]) -> TaskItem:
+def gitcode_issue_to_task(issue: dict[str, Any], source: dict[str, Any]) -> TaskItem:
     iid = int(issue["iid"])
     labels = ",".join(label_names(issue))
     assignees = issue.get("assignees") or []
     assignee_names = ",".join(str(user.get("username") or user.get("name") or "") for user in assignees)
     return TaskItem(
-        key=f"issue:{iid}",
+        key=f"gitcode:{source['key']}:{iid}",
         title=str(issue.get("title") or f"issue #{iid}"),
-        url=issue_url(iid),
-        source="issue",
+        url=issue_url(source, iid),
+        source=f"{source['name']} issue",
         status=str(issue.get("state") or ""),
         assignee=assignee_names,
         created_at=str(issue.get("created_at") or ""),
@@ -229,29 +311,97 @@ def issue_to_task(issue: dict[str, Any]) -> TaskItem:
     )
 
 
-def collect_tasks(include_details: bool = True) -> list[TaskItem]:
-    issues = fetch_issues()
+def collect_gitcode_tasks(source: dict[str, Any], include_details: bool = True) -> dict[str, TaskItem]:
+    issues = fetch_gitcode_issues(source)
     tasks: dict[str, TaskItem] = {}
     detail_sources: list[dict[str, Any]] = []
 
     for issue in issues:
-        if is_intern_issue(issue):
-            task = issue_to_task(issue)
+        if is_intern_issue(issue, source):
+            task = gitcode_issue_to_task(issue, source)
             tasks[task.key] = task
-            detail_sources.append(issue)
+            if should_fetch_issue_detail(issue, source):
+                detail_sources.append(issue)
 
-    if include_details:
+    if include_details and source.get("include_details", True):
         for issue in detail_sources:
             iid = int(issue["iid"])
             try:
-                detail = fetch_json(f"{ISSUES_API}/{iid}")
+                detail = fetch_json(f"{gitcode_issues_api(source)}/{iid}", headers=gitcode_headers(source))
             except Exception as exc:  # noqa: BLE001 - keep one bad issue from stopping notifications
-                print(f"warning: failed to fetch detail for issue #{iid}: {exc}", file=sys.stderr)
+                print(f"warning: failed to fetch {source['name']} issue #{iid}: {exc}", file=sys.stderr)
                 continue
             description = str(detail.get("description") or "")
-            for table_task in parse_task_table(description, detail):
+            for table_task in parse_task_table(description, detail, source):
                 tasks[table_task.key] = table_task
 
+    return tasks
+
+
+def github_headers() -> dict[str, str]:
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "Origin": "https://github.com",
+        "Referer": "https://github.com/",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
+def collect_github_tasks(source: dict[str, Any], per_page: int = 100, max_pages: int = 3) -> dict[str, TaskItem]:
+    tasks: dict[str, TaskItem] = {}
+    repo = str(source["repo"])
+    for page in range(1, max_pages + 1):
+        payload = fetch_json(
+            f"https://api.github.com/repos/{repo}/issues",
+            {
+                "state": "open",
+                "labels": source.get("labels", ""),
+                "per_page": per_page,
+                "page": page,
+            },
+            headers=github_headers(),
+        )
+        if not isinstance(payload, list):
+            break
+        for issue in payload:
+            if "pull_request" in issue:
+                continue
+            number = int(issue["number"])
+            labels = ",".join(str(label.get("name") or "") for label in issue.get("labels") or [])
+            assignee_names = ",".join(str(user.get("login") or "") for user in issue.get("assignees") or [])
+            task = TaskItem(
+                key=f"github:{source['key']}:{number}",
+                title=str(issue.get("title") or f"issue #{number}"),
+                url=str(issue.get("html_url") or f"{source['web_url']}/{number}"),
+                source=f"{source['name']} GitHub issue",
+                status=str(issue.get("state") or ""),
+                assignee=assignee_names,
+                created_at=str(issue.get("created_at") or ""),
+                updated_at=str(issue.get("updated_at") or ""),
+                labels=labels,
+            )
+            tasks[task.key] = task
+        if len(payload) < per_page:
+            break
+    return tasks
+
+
+def collect_tasks(include_details: bool = True) -> list[TaskItem]:
+    tasks: dict[str, TaskItem] = {}
+    for source in GITCODE_SOURCES:
+        try:
+            tasks.update(collect_gitcode_tasks(source, include_details=include_details))
+        except Exception as exc:  # noqa: BLE001 - keep one source outage from stopping the watcher
+            print(f"warning: failed to collect {source['name']} tasks: {exc}", file=sys.stderr)
+    for source in GITHUB_SOURCES:
+        try:
+            tasks.update(collect_github_tasks(source))
+        except Exception as exc:  # noqa: BLE001
+            print(f"warning: failed to collect {source['name']} tasks: {exc}", file=sys.stderr)
     return sorted(tasks.values(), key=lambda item: (item.created_at or item.updated_at or "", item.key), reverse=True)
 
 
@@ -288,7 +438,7 @@ def detect_changes(
         old_digest = seen.get(item.key)
         if old_digest is None:
             if notify_existing or not first_run:
-                if item.source == "issue":
+                if "issue" in item.source.lower():
                     changes.append(("new issue", item))
                 elif item.is_claimable:
                     changes.append(("claimable task", item))
@@ -336,7 +486,7 @@ def notify_toast(reason: str, item: TaskItem) -> bool:
     except Exception:
         return False
 
-    title = "OpenUBMC internship task"
+    title = "Open source internship task"
     message = f"{reason}: {item.title}"
     toast = Notification(
         app_id="OpenUBMC Task Watcher",
@@ -446,7 +596,7 @@ def notify_email(config: dict[str, Any], reason: str, item: TaskItem) -> None:
         raise RuntimeError(f"missing SMTP config: {', '.join(missing)}")
 
     message = EmailMessage()
-    message["Subject"] = f"OpenUBMC task: {item.title[:90]}"
+    message["Subject"] = f"Internship task: {item.title[:90]}"
     message["From"] = config["from"]
     message["To"] = ", ".join(config["to"])
     message.set_content(f"Reason: {reason}\n\n{render_item(item)}\n")
@@ -521,8 +671,8 @@ def update_state(path: Path, tasks: list[TaskItem]) -> None:
 
 
 def print_summary(tasks: list[TaskItem]) -> None:
-    issues = [item for item in tasks if item.source == "issue"]
-    claimable = [item for item in tasks if item.source != "issue" and item.is_claimable]
+    issues = [item for item in tasks if "issue" in item.source.lower()]
+    claimable = [item for item in tasks if "issue" not in item.source.lower() and item.is_claimable]
     print(f"Collected {len(tasks)} task records: {len(issues)} issue tasks, {len(claimable)} claimable table tasks.")
     if claimable:
         print("\nCurrent claimable table tasks:")
@@ -569,7 +719,7 @@ def run_once(args: argparse.Namespace) -> int:
         send_notifications(args, changes)
         print(f"Sent {len(changes)} notification(s).")
     else:
-        print(f"No new OpenUBMC internship task at {utcnow_iso()}. Tracked {len(tasks)} records.")
+        print(f"No new internship task at {utcnow_iso()}. Tracked {len(tasks)} records.")
     return 0
 
 
